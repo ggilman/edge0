@@ -23,7 +23,7 @@ affiliated with it. Model weights are not included; you download them separately
 | Memory | The Edge0 docs give **16 GiB GPU memory + 20 GiB system RAM** as the minimum. More of either makes it faster. |
 | Driver | An NVIDIA driver that supports **CUDA 13** (580 or newer). |
 | Host software | Docker with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) and Docker Compose v2. |
-| Disk | About 50-110 GB per model folder, plus about 3 GB for the image. Use fast SSD storage: experts that don't fit in memory are read from disk. |
+| Disk | About 50-110 GB per model folder, plus about 5 GB for the image. Use fast SSD storage: experts that don't fit in memory are read from disk. |
 
 ## Quick start
 
