@@ -196,10 +196,10 @@ def build_config(apply_tuning):
             die(f"REASONING_EFFORT={effort!r}: use one of {', '.join(EFFORTS)}")
         config["reasoning_effort"] = effort
 
-    for key, var in (("trusted_origins", "TRUSTED_ORIGINS"), ("cors_origins", "CORS_ORIGINS")):
+    for option, var in (("trusted_origins", "TRUSTED_ORIGINS"), ("cors_origins", "CORS_ORIGINS")):
         items = [x for x in env(var).replace(",", " ").split() if x]
         if items:
-            config[key] = items
+            config[option] = items
 
     print(f"edge0: model {name} from {model_dir} as {config['model_name']!r} on GPU {config['gpu']}", file=sys.stderr)
     return config, key, tuning_file
