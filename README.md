@@ -122,6 +122,7 @@ Set these in `.env`, in your shell, or as stack environment variables in Portain
 | `THINKING` | | `off` is the same as `REASONING_EFFORT=none`. Kept for older setups. |
 | `MODEL_OPTIONS` | | Space-separated `name=value` model options. See [Model options](#model-options). |
 | `STRATA_ARGS` | | Space-separated engine tuning flags, appended to the engine's command line. See [Engine tuning](#engine-tuning). |
+| `TUNING` | | `off` ignores a saved tune (`strata-tuning.json`) and runs the engine's defaults. See [Tuning for this machine](#tuning-for-this-machine). |
 | `SERVE_ARGS` | | Extra flags for Strata's `serve/server.py`, appended as-is, e.g. `--parallel 2` or `--api-monitor`. |
 | `TZ` | `UTC` | Time zone for log timestamps. |
 
@@ -145,6 +146,39 @@ Passed as `MODEL_OPTIONS`, e.g. `MODEL_OPTIONS=du=q4 ple-io=ram`.
 |---|---|---|
 | `du` | `q8` (default), `q4` | Precision of the dense up-projection. `q4` uses less memory. |
 | `ple-io` | `direct` (default), `ram` | `ram` keeps the per-layer embeddings in system RAM instead of reading them from disk. Needs the unlimited `memlock` this Compose file sets. |
+
+### Tuning for this machine
+
+Some engine settings depend on the computer more than on the model: the share of missing experts
+copied over PCIe (`--pcie-frac`), the draft layer's confidence floor (`--spec-min-p`), the CPU
+thread count (`--pool-workers`, which matters on CPUs with efficiency cores) and how the VRAM expert
+cache follows the conversation (`--adapt-*`). The `tune` command measures them with Strata's own
+tuner (`tools/calibrate.py`, what Strata's `--calibrate` runs) and keeps a value only when it is more
+than 3% faster than the default.
+
+It loads the model itself, so **stop the server first** (two copies don't fit in memory), and run it
+with the same settings as the server:
+
+```sh
+docker compose stop edge0
+docker compose run --rm edge0 tune     # roughly 15-30 minutes; the engine restarts several times
+docker compose start edge0
+```
+
+The result is saved in the model folder as `strata-tuning.json`, and every start applies it (the
+log says `edge0: tuned for this machine on <date>: ...`). Nothing outside the model folder is read
+or written. A tune is saved per setup — GPU, VRAM, CPU, RAM, model, `MODEL_OPTIONS` and `CONTEXT` —
+so after changing any of those the log says there is no tune for this setup, and you can run `tune`
+again; the earlier entries stay in the file. A flag in `STRATA_ARGS` overrides the same tuned flag,
+and `TUNING=off` ignores the file.
+
+With Portainer, stop the stack and run the tune from a shell with the same image, model folder and
+settings, for example:
+
+```sh
+docker run --rm --gpus all --ulimit memlock=-1:-1 --shm-size 2g \
+  -v /path/to/models:/models -e EDGE0_MODEL=Edge0-145B-q3k edge0-infer:cuda13 tune
+```
 
 ### Engine tuning
 

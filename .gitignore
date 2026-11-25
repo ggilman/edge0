@@ -3,3 +3,4 @@ models/
 # Local, machine-specific stack files (not for publishing)
 docker-compose.yaml
 edge0-stack.yaml
+__pycache__/
