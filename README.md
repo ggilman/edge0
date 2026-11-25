@@ -1,0 +1,254 @@
+# edge0-infer for Docker (NVIDIA CUDA)
+
+A container image and Compose file for running **Edge0 145B** and **Edge0 120B** as a local,
+OpenAI- and Anthropic-compatible API server on a single NVIDIA GPU.
+
+The image builds two programs from the upstream [Edge0](https://github.com/Edge0-AI/Edge0)
+repository:
+
+- **edge0-infer**: the CLI and HTTP server you talk to (`/v1/chat/completions`, `/v1/messages`,
+  `/v1/responses`, `/v1/models`, `/health`, `/status`).
+- **edge0-strata**: the CUDA engine (a fork of Strata) that edge0-infer starts for Edge0 145B and
+  120B. These are mixture-of-experts models whose experts are spread across GPU memory, system
+  RAM and disk, so a 145B model can run on one consumer GPU.
+
+This repository only packages that software. It is not part of the Edge0 project and isn't
+affiliated with it. Model weights are not included; you download them separately.
+
+## Requirements
+
+| | |
+|---|---|
+| GPU | NVIDIA, compute capability 8.0 or newer. The image is compiled for **sm_120 (RTX 50-series)** by default; see [Building for other GPUs](#building-for-other-gpus). One GPU per server. |
+| Memory | The Edge0 docs give **16 GiB GPU memory + 20 GiB system RAM** as the minimum. More of either makes it faster. |
+| Driver | An NVIDIA driver that supports **CUDA 13** (580 or newer). |
+| Host software | Docker with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) and Docker Compose v2. |
+| Disk | About 50-110 GB per model folder, plus about 3 GB for the image. Use fast SSD storage: experts that don't fit in memory are read from disk. |
+
+## Quick start
+
+**1. Download a model folder.** Each folder holds one model in one expert format:
+
+| Folder | Weights | Notes |
+|---|---|---|
+| [`Edge0-145B-q3k`](https://huggingface.co/Edge0/Edge0-145B-q3k) | 40.81 GiB | Q3_K experts. The only 145B build with a published result on a 16 GiB VRAM / 20 GiB RAM budget. **The default here.** |
+| [`Edge0-145B-NVFP4`](https://huggingface.co/Edge0/Edge0-145B-NVFP4) | 47.79 GiB | NVFP4 experts. Needs more memory; no 16 GiB result is published. |
+| [`Edge0-120B-q3k`](https://huggingface.co/Edge0/Edge0-120B-q3k) | 27.98 GiB | Smaller model, Q3_K. |
+| [`Edge0-120B-NVFP4`](https://huggingface.co/Edge0/Edge0-120B-NVFP4) | 32.96 GiB | Smaller model, NVFP4. |
+
+```sh
+pip install -U huggingface_hub
+hf download Edge0/Edge0-145B-q3k --local-dir ./models/Edge0-145B-q3k
+```
+
+Use the folder as provided: don't move files out of it or rename them. Check the model card on
+Hugging Face for the weights' license.
+
+**2. Configure.**
+
+```sh
+cp .env.example .env
+# set API_KEY (for example: openssl rand -hex 24), and EDGE0_MODEL if you downloaded another folder
+```
+
+**3. Start it.**
+
+```sh
+docker compose up -d --build     # the first build compiles CUDA code and takes a while
+docker compose logs -f           # wait for:  Listening: http://0.0.0.0:8080 model=edge0_145b
+```
+
+Loading takes about one to a few minutes, longer on the first start or from slow disks. The
+server doesn't answer until loading is done; the container shows as `healthy` once it is serving.
+
+**4. Try it.**
+
+```sh
+curl http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer $API_KEY" -H "Content-Type: application/json" \
+  -d '{"model":"edge0_145b","messages":[{"role":"user","content":"Say hello."}]}'
+```
+
+Clients:
+
+| | |
+|---|---|
+| OpenAI-compatible base URL | `http://<host>:8080/v1` |
+| Anthropic-compatible base URL | `http://<host>:8080` (no `/v1`; e.g. Claude Code's `ANTHROPIC_BASE_URL`) |
+| Auth | `Authorization: Bearer <API_KEY>` or `x-api-key: <API_KEY>` |
+| Model name | `edge0_145b` or `edge0_120b`, or whatever you set with `MODEL_ALIAS` |
+
+## Compose settings
+
+Set these in `.env`, in your shell, or as stack environment variables in Portainer. Empty means
+"use edge0-infer's default".
+
+### Required
+
+| Variable | Description |
+|---|---|
+| `API_KEY` | Key every client must send. Requests without it get `401`. There is no keyless mode: without a key the server only answers from inside the container. |
+
+### Model and storage
+
+| Variable | Default | Description |
+|---|---|---|
+| `MODELS_DIR` | `./models` | Host folder containing the model folders. Mounted at `/models`. **Must be writable**: the first start may write files (such as `mtp-q2_0.gguf`) into the model folder. |
+| `EDGE0_MODEL` | `Edge0-145B-q3k` | Name of the model folder inside `MODELS_DIR` to serve. Switching models is a restart: change it and run `docker compose up -d`. |
+
+### Network
+
+| Variable | Default | Description |
+|---|---|---|
+| `EDGE0_PORT` | `8080` | Port on the host. |
+| `EDGE0_BIND` | `0.0.0.0` | Host address to listen on. Use `127.0.0.1` to allow only local clients, e.g. behind a reverse proxy on the same machine. |
+
+### Server
+
+| Variable | Default | Description |
+|---|---|---|
+| `CONTEXT` | `131072` | Maximum context length in tokens. Lower it to save memory. |
+| `DEVICE` | `cuda:0` | GPU to run on, `cuda` or `cuda:<n>`. One GPU only. To pick the GPU from Docker's side instead, set `GPU_COUNT=1`. |
+| `GPU_COUNT` | `all` | How many GPUs Docker gives the container. |
+| `MODEL_ALIAS` | model's own name | Model name the API reports and accepts (`/v1/models`). |
+| `THINKING` | model default | `on` or `off`: whether the model reasons before answering by default. |
+| `MODEL_OPTIONS` | | Space-separated `name=value` model options, each passed as `--model-option`. See [Model options](#model-options). |
+| `STRATA_ARGS` | | Space-separated engine tuning flags, each word passed as `--strata-arg`. See [Engine tuning](#engine-tuning). |
+| `SERVE_ARGS` | | Any other `edge0-infer serve` flags, appended as-is, e.g. `--temperature 0.6 --max-tokens 8192`. |
+| `READY_TIMEOUT` | `1800` | Seconds to wait for the model to load before giving up. |
+| `TZ` | `UTC` | Time zone for log timestamps. |
+
+### Image and build
+
+| Variable | Default | Description |
+|---|---|---|
+| `EDGE0_IMAGE` | `edge0-infer:cuda13` | Image to run or build, e.g. `yourname/edge0-infer:cuda13` once published. |
+| `CUDA_ARCHITECTURES` | `120` | GPUs to compile for (build only). See below. |
+| `EDGE0_REF` | `main` | Upstream Edge0 branch, tag or commit to build (build only). |
+| `CONTAINER_NAME` | `edge0` | Container name. |
+
+The Compose file also sets `memlock` to unlimited (required for `ple-io=ram`), `shm_size: 2gb`,
+a 2-minute stop grace period so the engine can unload cleanly, and log rotation (3 × 20 MB).
+
+### Model options
+
+Passed as `MODEL_OPTIONS`, e.g. `MODEL_OPTIONS=du=q4 ple-io=ram`.
+
+| Option | Values | Description |
+|---|---|---|
+| `du` | `q8` (default), `q4` | Precision of the dense up-projection. `q4` uses less memory. |
+| `ple-io` | `direct` (default), `ram` | `ram` keeps the per-layer embeddings in system RAM instead of reading them from disk. Needs the unlimited `memlock` this Compose file sets. |
+
+### Engine tuning
+
+Each word of `STRATA_ARGS` becomes one `--strata-arg`, so write flags and values separated by
+spaces. Example from the Edge0 docs, for tuning to one machine:
+
+```sh
+STRATA_ARGS=--pool-workers 24 --pcie-mode dma --pcie-frac 0.1 --vram-reserve-mib 700 --kv-resident 32768
+```
+
+| Flag | Description |
+|---|---|
+| `--vram-reserve-mib N` | GPU memory to leave free (default 700). Raise it if other programs use the GPU. |
+| `--kv-resident N` | Tokens of KV cache kept on the GPU. |
+| `--pool-workers N` | CPU worker threads. |
+| `--pcie-mode`, `--pcie-frac` | How expert transfers over PCIe are scheduled. |
+
+`--max-context` is rejected here (use `CONTEXT`), as are flags the model's template already sets.
+
+## Running without Compose
+
+```sh
+docker run -d --name edge0 --gpus all \
+  --ulimit memlock=-1:-1 --shm-size 2g \
+  -p 8080:8080 \
+  -v /path/to/models:/models \
+  -e API_KEY=change-me -e EDGE0_MODEL=Edge0-145B-q3k \
+  edge0-infer:cuda13
+```
+
+Any flags after the image name are added to `edge0-infer serve`. A command that doesn't start with
+`-` runs instead of the server. For example, to check that a model folder is complete:
+
+```sh
+docker run --rm -v /path/to/models:/models edge0-infer:cuda13 \
+  edge0-infer inspect --model /models/Edge0-145B-q3k --json
+```
+
+The entrypoint also accepts `MODEL_DIR` (a full path, instead of `EDGE0_MODEL`) and
+`API_KEY_FILE` (a file holding the key, e.g. a Docker secret, instead of `API_KEY`).
+
+## Building
+
+```sh
+docker compose build
+# or
+docker build -t edge0-infer:cuda13 .
+```
+
+The build follows the upstream instructions (`edge0-strata/EDGE0.md`, "Build (Linux, NVIDIA)"):
+it fetches the pinned llama.cpp commit that provides ggml, builds the `strata` engine with
+`-DSTRATA_ENABLE_CUDA=ON`, creates the engine's Python environment, and builds edge0-infer with its
+`cpu` preset. edge0-infer needs no GPU backend for these models because edge0-strata does the GPU
+work. The final image is based on `nvidia/cuda:13.0.0-runtime` and holds only what runs.
+
+Build arguments:
+
+| Argument | Default | Description |
+|---|---|---|
+| `CUDA_ARCHITECTURES` | `120` | Compute capabilities to compile for, separated by `;`. |
+| `EDGE0_REF` | `main` | Upstream branch, tag or commit. Pin a commit for reproducible builds. |
+| `EDGE0_REPO` | upstream GitHub URL | Use a fork. |
+| `LLAMA_CPP_COMMIT` | `3cf0325…` | ggml source for the engine. If you change `EDGE0_REF`, use the commit that `edge0-strata/EDGE0.md` names at that revision. |
+| `CUDA_VERSION` | `13.0.0` | CUDA base image version. CUDA 13 is required. |
+
+### Building for other GPUs
+
+Find your GPU's compute capability with
+`nvidia-smi --query-gpu=compute_cap --format=csv` (12.0 → `120`) and build for it:
+
+```sh
+docker build -t edge0-infer:cuda13 --build-arg CUDA_ARCHITECTURES="89" .
+```
+
+Common values: `120` RTX 50-series, `89` RTX 40-series / L4 / L40, `86` RTX 30-series / A10,
+`90` H100, `80` A100. Several, e.g. `"86;89;120"`, make one image for all of them, but each one
+adds build time and image size. Only `120` has been tested with this image.
+
+### Publishing
+
+```sh
+docker tag edge0-infer:cuda13 yourname/edge0-infer:cuda13
+docker push yourname/edge0-infer:cuda13
+```
+
+Then set `EDGE0_IMAGE=yourname/edge0-infer:cuda13` so Compose pulls it instead of building.
+
+## Using with Portainer
+
+Create a stack from this repository (Repository build method), or paste `compose.yaml` into the web
+editor and add the variables above under **Environment variables**. The web editor has no build
+context, so build or pull the image first and set `EDGE0_IMAGE` to it.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| `edge0: set API_KEY or API_KEY_FILE` | No key configured. Set `API_KEY`. |
+| `edge0: no model.json in /models/...` | `MODELS_DIR` or `EDGE0_MODEL` doesn't point at a model folder. The folder named by `EDGE0_MODEL` must directly contain `model.json`. |
+| `401 Invalid API key` | Client sent no key or the wrong one. |
+| Container restarts while loading, or out-of-memory errors | The model doesn't fit this GPU/RAM. Use the `-q3k` folder, lower `CONTEXT`, try `MODEL_OPTIONS=du=q4`, or close other programs using the GPU. |
+| `no kernel image is available for execution on the device` | The image wasn't built for your GPU. Rebuild with your `CUDA_ARCHITECTURES`. |
+| Container is `unhealthy` | The model took longer than 30 minutes to load, or the server stopped. Check `docker compose logs`. |
+| Second request waits | Expected: requests are queued and answered one at a time. |
+
+Other known limitations from upstream: some `/status` fields (memory, expert statistics) are null
+for these models, and temperature 0 isn't bit-for-bit repeatable.
+
+## Licenses
+
+The Dockerfile, Compose file and scripts in this repository: see `LICENSE` <!-- TODO: add a LICENSE file -->. The image contains Edge0
+(Apache-2.0, see `/opt/edge0/LICENSE` and `/opt/edge0/NOTICE` in the image) and the third-party
+works listed in its NOTICE, plus NVIDIA CUDA runtime components under NVIDIA's license. Model
+weights are licensed separately; see each model card.

@@ -1,0 +1,63 @@
+# Edge0 inference server: OpenAI- and Anthropic-compatible API for Edge0 145B / 120B on an NVIDIA GPU.
+# Settings are read from a .env file next to this file (copy .env.example) or from your shell /
+# Portainer stack variables. Every setting is explained in README.md.
+#
+#   cp .env.example .env    # then edit it
+#   docker compose up -d
+#   docker compose logs -f
+#
+# Note: inside this file, $VAR is replaced by Compose when the stack is deployed. Settings are
+# passed to the container as environment variables and read by docker-entrypoint.sh, so there
+# is no shell command here that could be emptied by a missing stack variable.
+
+services:
+  edge0:
+    image: ${EDGE0_IMAGE:-edge0-infer:cuda13}
+    build:
+      context: .
+      args:
+        CUDA_ARCHITECTURES: ${CUDA_ARCHITECTURES:-120}
+        EDGE0_REF: ${EDGE0_REF:-main}
+    container_name: ${CONTAINER_NAME:-edge0}
+    restart: unless-stopped
+
+    ports:
+      - "${EDGE0_BIND:-0.0.0.0}:${EDGE0_PORT:-8080}:8080"
+
+    environment:
+      API_KEY: ${API_KEY:?Set API_KEY (see README.md)}
+      EDGE0_MODEL: ${EDGE0_MODEL:-Edge0-145B-q3k}
+      CONTEXT: ${CONTEXT:-}
+      DEVICE: ${DEVICE:-}
+      MODEL_ALIAS: ${MODEL_ALIAS:-}
+      THINKING: ${THINKING:-}
+      MODEL_OPTIONS: ${MODEL_OPTIONS:-}
+      STRATA_ARGS: ${STRATA_ARGS:-}
+      SERVE_ARGS: ${SERVE_ARGS:-}
+      READY_TIMEOUT: ${READY_TIMEOUT:-}
+      TZ: ${TZ:-UTC}
+
+    volumes:
+      # Folder that holds the model folders (e.g. ./models/Edge0-145B-q3k). Must be writable.
+      - ${MODELS_DIR:-./models}:/models
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+
+    ulimits:
+      memlock:          # needed for MODEL_OPTIONS=ple-io=ram; harmless otherwise
+        soft: -1
+        hard: -1
+    shm_size: 2gb
+    stop_grace_period: 2m
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
