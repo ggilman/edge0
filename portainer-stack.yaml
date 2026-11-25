@@ -1,0 +1,52 @@
+# Edge0 inference server: Portainer stack (web editor).
+# Same as compose.yaml without the build section: the web editor has no build context, so the
+# image must already exist on the host (docker build -t edge0-infer:cuda13 .) or be pullable
+# (set EDGE0_IMAGE). Add the settings under the stack's "Environment variables"; API_KEY is
+# required, MODELS_DIR and EDGE0_MODEL are usually needed. All settings: README.md.
+
+services:
+  edge0:
+    image: ${EDGE0_IMAGE:-edge0-infer:cuda13}
+    container_name: ${CONTAINER_NAME:-edge0}
+    restart: unless-stopped
+
+    ports:
+      - "${EDGE0_BIND:-0.0.0.0}:${EDGE0_PORT:-8080}:8080"
+
+    environment:
+      API_KEY: ${API_KEY:?Set API_KEY (see README.md)}
+      EDGE0_MODEL: ${EDGE0_MODEL:-Edge0-145B-q3k}
+      CONTEXT: ${CONTEXT:-}
+      DEVICE: ${DEVICE:-}
+      MODEL_ALIAS: ${MODEL_ALIAS:-}
+      THINKING: ${THINKING:-}
+      MODEL_OPTIONS: ${MODEL_OPTIONS:-}
+      STRATA_ARGS: ${STRATA_ARGS:-}
+      SERVE_ARGS: ${SERVE_ARGS:-}
+      READY_TIMEOUT: ${READY_TIMEOUT:-}
+      TZ: ${TZ:-UTC}
+
+    volumes:
+      # Folder that holds the model folders (e.g. ./models/Edge0-145B-q3k). Must be writable.
+      - ${MODELS_DIR:-./models}:/models
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+
+    ulimits:
+      memlock:          # needed for MODEL_OPTIONS=ple-io=ram; harmless otherwise
+        soft: -1
+        hard: -1
+    shm_size: 2gb
+    stop_grace_period: 2m
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"

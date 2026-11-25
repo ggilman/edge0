@@ -227,9 +227,11 @@ Then set `EDGE0_IMAGE=yourname/edge0-infer:cuda13` so Compose pulls it instead o
 
 ## Using with Portainer
 
-Create a stack from this repository (Repository build method), or paste `compose.yaml` into the web
-editor and add the variables above under **Environment variables**. The web editor has no build
-context, so build or pull the image first and set `EDGE0_IMAGE` to it.
+Create a stack from this repository (Repository build method, compose path `compose.yaml`), or
+paste `portainer-stack.yaml` into the web editor and add the variables above under **Environment
+variables**. `portainer-stack.yaml` is `compose.yaml` without the build section, because the web
+editor has no build context: build or pull the image first and set `EDGE0_IMAGE` if it has
+another name.
 
 ## Troubleshooting
 
