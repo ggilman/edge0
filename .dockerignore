@@ -1,2 +1,3 @@
 *
 !docker-entrypoint.sh
+!edge0-strata-config.py

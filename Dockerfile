@@ -89,8 +89,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out/edge0 /opt/edge0
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+COPY docker-entrypoint.sh edge0-strata-config.py /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/edge0-strata-config.py \
     && ln -s /opt/edge0/edge0-infer/build/cpu/bin/edge0-infer /usr/local/bin/edge0-infer
 
 ENV EDGE0_STRATA_DIR=/opt/edge0/edge0-strata \
