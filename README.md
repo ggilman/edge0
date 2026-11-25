@@ -294,7 +294,7 @@ Known limitation from upstream: temperature 0 isn't bit-for-bit repeatable.
 
 ## Licenses
 
-The Dockerfile, Compose file and scripts in this repository: see `LICENSE` <!-- TODO: add a LICENSE file -->. The image contains Edge0
+The Dockerfile, Compose file and scripts in this repository: Apache License 2.0, see [`LICENSE`](LICENSE). The image contains Edge0
 (Apache-2.0, see `/opt/edge0/LICENSE` and `/opt/edge0/NOTICE` in the image) and the third-party
 works listed in its NOTICE, plus NVIDIA CUDA runtime components under NVIDIA's license. Model
 weights are licensed separately; see each model card.
